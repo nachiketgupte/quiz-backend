@@ -9,6 +9,7 @@ app.use(express.json());
 // Allow requests from frontend (http://localhost:3000)
 app.use(cors({
   origin: "http://localhost:3000",
+  credentials: true,
   methods: "GET, POST",
   allowedHeaders: "Content-Type, Authorization"
 }));
@@ -49,5 +50,26 @@ const { username, email, password } = req.body;
   }
 });
 
+app.post("/login", async (req, res) => {
+  const {username, password} = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const result = await pool.query(
+    "SELECT COUNT(*) FROM USERS WHERE user_name = $1 and user_password = $2",
+    [username, hashedPassword]
+  );
+  console.log('Login request');
+  
+  if(result.rowCount === 0)
+  {
+    return res.status(401).json({ message: "Invalid credentials" });
+  }
+  
+  return res.status(200).json({message: "Login successful"});
+  
+})
 
 app.listen(PORT, () => console.log(`Server running on PORT: ${PORT}`));
