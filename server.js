@@ -3,6 +3,7 @@ const app = express();
 const pool = require('./db');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const { body, validationResult } = require("express-validator");
 require('dotenv').config();
 
 app.use(express.json());
@@ -30,25 +31,72 @@ app.get("/users", async (req,res) => {
       }
 });
 
+app.post(
+  "/signup",
+  [
+    body("username")
+      .trim()
+      .isLength({ min: 3 })
+      .withMessage("Username must be at least 3 characters long")
+      .matches(/^[a-zA-Z0-9_]+$/)
+      .withMessage("Username can only contain letters, numbers, and underscores"),
+    body("email").isEmail().normalizeEmail().withMessage("Invalid email address"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters long")
+      .matches(/[0-9]/)
+      .withMessage("Password must contain at least one number")
+      .matches(/[!@#$%^&*]/)
+      .withMessage("Password must contain at least one special character (!@#$%^&*)"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
 
-app.post("/signup", async (req, res) => {
-const { username, email, password } = req.body;
+    const { username, email, password } = req.body;
 
-  // Hash the password before storing it
-  const hashedPassword = await bcrypt.hash(password, 10);
+    try {
+      // Hash the password before storing it
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-  try {
-    const result = await pool.query(
-      "INSERT INTO users (user_name, user_email, user_password) VALUES ($1, $2, $3) RETURNING *",
-      [username, email, hashedPassword]
-    );
-    
-    res.status(201).json({ message: "User registered successfully", user: result.rows[0] });
-  } catch (err) {
-    console.log('Error:', err);
-    res.status(500).json({ message: "Error registering user", error: err.message });
+      const checkUserExists = await pool.query(
+        "SELECT COUNT(*) AS count FROM users WHERE user_name = $1",
+        [username]
+      );
+      
+      if (parseInt(checkUserExists.rows[0].count) > 0) { // Convert to integer
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      
+      const checkEmailExists = await pool.query(
+        "SELECT COUNT(*) AS count FROM users WHERE user_email = $1",
+        [email]
+      );
+      
+      if (parseInt(checkEmailExists.rows[0].count) > 0) { // Convert to integer
+        return res.status(400).json({ message: "Email already exists" });
+      }      
+
+      const result = await pool.query(
+        "INSERT INTO users (user_name, user_email, user_password) VALUES ($1, $2, $3) RETURNING *",
+        [username, email, hashedPassword]
+      );
+
+      res.status(201).json({ message: "User registered successfully", user: result.rows[0] });
+    } catch (err) {
+      console.error("Error:", err);
+
+      if (err.code === "23505") {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+
+      res.status(500).json({ message: "Error registering user", error: err.message });
+    }
   }
-});
+);
+
 
 app.post("/login", async (req, res) => {
   const {username, password} = req.body;
